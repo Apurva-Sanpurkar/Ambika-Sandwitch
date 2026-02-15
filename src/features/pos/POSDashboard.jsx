@@ -148,79 +148,58 @@ const POSDashboard = () => {
 
   const handleProfessionalShare = async () => {
     if (!receiptRef.current) return;
-    
     try {
-      const lastToken = lastOrder?.tokenNo || '00';
-      const fileName = `Ambika_Bill_${lastToken}.png`;
-  
-      // 1. Cleanup: Try to delete old temp files to save phone space
-      try {
-        await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache });
-      } catch (e) { /* File doesn't exist, ignore */ }
-  
-      // 2. High-Res Capture
-      const dataUrl = await toPng(receiptRef.current, { 
-        backgroundColor: '#fff', 
-        pixelRatio: 3,
-        cacheBust: true 
-      });
-  
-      // 3. Save to Native Storage
+      // 1. Generate Image
+      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3, cacheBust: true });
+      const fileName = `Ambika_Bill_${lastOrder.tokenNo}.png`;
+
+      // 2. Save Image to Cache
       const savedFile = await Filesystem.writeFile({
         path: fileName,
         data: dataUrl.split(',')[1],
         directory: Directory.Cache
       });
-  
-      // 4. Construct Professional Message
+
+      // 3. Construct Message
       const upiLink = `upi://pay?pa=${MY_REAL_UPI_ID}&pn=Ambika%20Sandwich&am=${lastOrder.total}&cu=INR`;
-      const rawMessage = `*🥪 AMBIKA SANDWICH #${lastToken}*\n` +
-                         `--------------------------------\n` +
-                         `*Hello ${customerName || 'Customer'}!* 👋\n\n` +
-                         `Your delicious order is being prepared.\n` +
-                         `*Total: ₹${lastOrder.total}*\n` +
-                         `*Payment: ${lastOrder.paymentMethod}*\n\n` +
-                         `✅ *TAP TO PAY:* ${upiLink}\n\n` +
-                         `⏳ *Wait Time:* ${waitInfo.minutes} Mins\n` +
-                         `--------------------------------\n` +
-                         `*Visit Again!* ✨`;
-  
-      // 5. Execution Flow
+      const caption = `*🥪 AMBIKA SANDWICH #${lastOrder.tokenNo}*\n` +
+                      `Hello ${customerName || 'Customer'}!\n` +
+                      `Total: *₹${lastOrder.total}*\n` +
+                      `✅ *TAP TO PAY:* ${upiLink}`;
+
+      // 4. THE AUTO-OPEN LOGIC
       if (customerPhone && customerPhone.length >= 10) {
         const cleanPhone = customerPhone.startsWith('91') ? customerPhone : `91${customerPhone}`;
         
-        // Share Image Natively
+        // STEP A: Share the Image (Opens contact picker - pick WhatsApp)
         await Share.share({
-          title: 'Ambika Receipt',
+          title: 'Ambika Bill',
           url: savedFile.uri,
         });
-  
-        // Jump to targeted chat with URL-safe message
+
+        // STEP B: Immediate Jump to targeted chat with text
+        // This opens the specific customer chat window with the text pre-filled
         setTimeout(() => {
-          const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(rawMessage)}`;
+          const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(caption)}`;
           window.open(whatsappUrl, '_blank');
         }, 1200);
-  
+
       } else {
-        // General Share (Text + Image bundled)
+        // Fallback for general sharing if no number entered
         await Share.share({
-          title: 'Ambika Receipt',
-          text: rawMessage,
+          title: 'Ambika Sandwich Receipt',
+          text: caption,
           url: savedFile.uri,
+          dialogTitle: 'Send Bill'
         });
       }
-  
-      // Update Recent Customers List
+
+      // Update CRM
       if (customerPhone) {
-        const updated = [{ phone: customerPhone, name: customerName || 'Customer' }, ...recentCustomers.filter(c => c.phone !== customerPhone)].slice(0, 5);
-        setRecentCustomers(updated);
-        localStorage.setItem('recent_customers', JSON.stringify(updated));
+        const updated = [{ phone: customerPhone, name: customerName }, ...recentCustomers.filter(c => c.phone !== customerPhone)].slice(0, 5);
+        setRecentCustomers(updated); localStorage.setItem('recent_customers', JSON.stringify(updated));
       }
-  
-    } catch (error) {
-      console.error("Critical Share Error:", error);
-      alert("Share failed. Please check storage permissions in phone settings.");
-    }
+    } catch (error) { console.error("Share failed", error); }
   };
 
   const handleDownloadPNG = async () => {
