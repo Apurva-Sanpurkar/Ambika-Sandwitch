@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingCart, Download, Trash2, Clock, Zap, CheckCircle, X, MessageCircle, ArrowRight, User, Banknote, CreditCard, History, Search } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { Share } from '@capacitor/share'; 
+import { Filesystem, Directory } from '@capacitor/filesystem'; // Added for proper mobile file handling
 import { MENU_DATA } from '../../utils/menuData';
 import { calculateWaitTime } from '../../utils/queueLogic';
 import { db } from '../../services/firebase';
@@ -26,7 +27,6 @@ const POSDashboard = () => {
   const [showCartMobile, setShowCartMobile] = useState(false); 
   const receiptRef = useRef(null);
 
-  // REPLACE THIS with your actual UPI ID for real payments
   const MY_REAL_UPI_ID = "apurvasanpurkar2010@okaxis"; 
 
   useEffect(() => {
@@ -83,12 +83,11 @@ const POSDashboard = () => {
     } catch (e) { console.error(e); } finally { setIsProcessing(false); }
   };
 
-  // --- COMPREHENSIVE NATIVE SHARE (IMAGE + TEXT + UPI) ---
   const handleWhatsAppSend = async (phone, name = "") => {
     if (!phone || phone.length < 10) return;
     const displayName = name || "Customer";
     
-    // Direct UPI link for mobile banking apps
+    // Fixed UPI link for mobile deep-linking
     const upiLink = `upi://pay?pa=${MY_REAL_UPI_ID}&pn=Ambika%20Sandwich&am=${lastOrder.total}&cu=INR`;
 
     let message = `*🥪 AMBIKA SANDWICH 🥪*\n*Hello ${displayName}!* 👋\n*TOKEN: #${lastOrder.tokenNo}*\nPay: ${lastOrder.paymentMethod}\n--------------------------------\n`;
@@ -100,23 +99,34 @@ const POSDashboard = () => {
     message += `⏳ *Ready in approx:* ${waitInfo.minutes} Mins`;
 
     try {
-      // Generate High-Res Image
+      // 1. Generate Image from Ref
       const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3, cacheBust: true });
       
-      // Share Image and Text as a single bundle
+      // 2. Save Image to temporary Filesystem to allow sharing file
+      const fileName = `Ambika_Token_${lastOrder.tokenNo}.png`;
+      const base64Data = dataUrl.split(',')[1];
+      
+      const savedFile = await Filesystem.writeFile({
+        path: fileName,
+        data: base64Data,
+        directory: Directory.Cache
+      });
+
+      // 3. Share text and image file together
       await Share.share({
         title: 'Ambika Bill',
         text: message,
-        url: dataUrl,
+        url: savedFile.uri, // Using the local URI for the image file
         dialogTitle: `Sending Bill to ${displayName}`,
       });
 
-      // Save to Recent List
       const updated = [{ phone, name: displayName }, ...recentCustomers.filter(c => c.phone !== phone)].slice(0, 5);
       setRecentCustomers(updated);
       localStorage.setItem('recent_customers', JSON.stringify(updated));
 
     } catch (error) {
+      console.error("Native share failed", error);
+      // Web fallback
       const finalNum = phone.startsWith('91') ? phone : `91${phone}`;
       window.open(`https://wa.me/${finalNum}?text=${encodeURIComponent(message)}`, '_blank');
     }
@@ -130,12 +140,25 @@ const POSDashboard = () => {
     return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
   };
 
+  // Re-using the same robust share logic for the download button
   const downloadPNG = async () => {
     if (!receiptRef.current) return;
     try {
       const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3, cacheBust: true });
-      await Share.share({ title: `Ambika-Token-${lastOrder.tokenNo}`, url: dataUrl });
-    } catch (error) { console.error(error); }
+      const fileName = `Ambika_Token_${lastOrder.tokenNo}.png`;
+      const base64Data = dataUrl.split(',')[1];
+      
+      const savedFile = await Filesystem.writeFile({
+        path: fileName,
+        data: base64Data,
+        directory: Directory.Cache
+      });
+
+      await Share.share({
+        title: `Ambika-Token-${lastOrder.tokenNo}`,
+        url: savedFile.uri 
+      });
+    } catch (error) { console.error("Download share failed", error); }
   };
 
   const filteredHistory = orderHistory.filter(order => order.tokenNo?.toString().includes(historySearch));
@@ -288,7 +311,7 @@ const POSDashboard = () => {
               
               {/* THE IMAGE AREA */}
               <div ref={receiptRef} className="bg-white p-4 border-2 border-dashed border-gray-300 font-mono text-black text-[10px] text-left">
-                <h3 className="font-black text-center text-sm uppercase mb-4">Ambika Sandwich</h3>
+                <h3 className="font-black text-center text-sm uppercase mb-4 text-center">Ambika Sandwich</h3>
                 <div className="border-y border-black py-4 my-2 text-center">
                   <span className="block text-[8px] font-black text-gray-400 uppercase mb-1">Token Number</span>
                   <span className="font-black text-4xl italic">#{lastOrder?.tokenNo}</span>
@@ -304,8 +327,11 @@ const POSDashboard = () => {
                 <div className="flex justify-between font-black text-sm border-t border-black pt-2 uppercase"><span>TOTAL</span><span>₹{lastOrder?.total}</span></div>
               </div>
 
-              <button onClick={downloadPNG} className="w-full mt-6 bg-green-600 text-white py-4 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 active:scale-95 transition-all">
-                <Download size={16}/> SHARE MSG & IMAGE
+              <button 
+                onClick={handleWhatsAppSend.bind(null, customerPhone, customerName)} 
+                className="w-full mt-6 bg-green-600 text-white py-4 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg"
+              >
+                <MessageCircle size={16}/> SHARE MSG & IMAGE
               </button>
             </motion.div>
           </div>
