@@ -149,57 +149,39 @@ const POSDashboard = () => {
   const handleProfessionalShare = async () => {
     if (!receiptRef.current) return;
     try {
-      // 1. Generate Image
       const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3, cacheBust: true });
-      const fileName = `Ambika_Bill_${lastOrder.tokenNo}.png`;
+      const base64Data = dataUrl.split(',')[1];
+      const fileName = `Bill_${lastOrder.tokenNo}.png`;
 
-      // 2. Save Image to Cache
       const savedFile = await Filesystem.writeFile({
         path: fileName,
-        data: dataUrl.split(',')[1],
+        data: base64Data,
         directory: Directory.Cache
       });
 
-      // 3. Construct Message
       const upiLink = `upi://pay?pa=${MY_REAL_UPI_ID}&pn=Ambika%20Sandwich&am=${lastOrder.total}&cu=INR`;
+      
+      // We put the phone number in the title/text so it appears in the share sheet
       const caption = `*🥪 AMBIKA SANDWICH #${lastOrder.tokenNo}*\n` +
-                      `Hello ${customerName || 'Customer'}!\n` +
+                      `Hello ${customerName || 'Valued Customer'}! 👋\n` +
                       `Total: *₹${lastOrder.total}*\n` +
-                      `✅ *TAP TO PAY:* ${upiLink}`;
+                      `✅ *TAP TO PAY:* ${upiLink}\n\n` +
+                      `Thank you! ✨`;
 
-      // 4. THE AUTO-OPEN LOGIC
-      if (customerPhone && customerPhone.length >= 10) {
-        const cleanPhone = customerPhone.startsWith('91') ? customerPhone : `91${customerPhone}`;
-        
-        // STEP A: Share the Image (Opens contact picker - pick WhatsApp)
-        await Share.share({
-          title: 'Ambika Bill',
-          url: savedFile.uri,
-        });
+      // NATIVE BUNDLE: This sends Image + Text as one package
+      await Share.share({
+        title: `Bill for ${customerName || customerPhone}`,
+        text: caption,      // THIS IS THE CAPTION
+        url: savedFile.uri,  // THIS IS THE IMAGE
+        dialogTitle: 'Send to Customer'
+      });
 
-        // STEP B: Immediate Jump to targeted chat with text
-        // This opens the specific customer chat window with the text pre-filled
-        setTimeout(() => {
-          const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(caption)}`;
-          window.open(whatsappUrl, '_blank');
-        }, 1200);
-
-      } else {
-        // Fallback for general sharing if no number entered
-        await Share.share({
-          title: 'Ambika Sandwich Receipt',
-          text: caption,
-          url: savedFile.uri,
-          dialogTitle: 'Send Bill'
-        });
-      }
-
-      // Update CRM
       if (customerPhone) {
-        const updated = [{ phone: customerPhone, name: customerName }, ...recentCustomers.filter(c => c.phone !== customerPhone)].slice(0, 5);
-        setRecentCustomers(updated); localStorage.setItem('recent_customers', JSON.stringify(updated));
+        const updated = [{ phone: customerPhone, name: customerName || 'Customer' }, ...recentCustomers.filter(c => c.phone !== customerPhone)].slice(0, 5);
+        setRecentCustomers(updated); 
+        localStorage.setItem('recent_customers', JSON.stringify(updated));
       }
-    } catch (error) { console.error("Share failed", error); }
+    } catch (error) { console.error(error); }
   };
 
   const handleDownloadPNG = async () => {
