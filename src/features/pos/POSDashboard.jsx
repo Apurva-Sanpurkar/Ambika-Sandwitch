@@ -26,6 +26,9 @@ const POSDashboard = () => {
   const [showCartMobile, setShowCartMobile] = useState(false); 
   const receiptRef = useRef(null);
 
+  // REPLACE THIS with your actual UPI ID
+  const MY_REAL_UPI_ID = "apurvasanpurkar2010@okaxis"; 
+
   useEffect(() => {
     const qQueue = query(collection(db, "orders"), where("status", "==", "preparing"));
     const unsubQueue = onSnapshot(qQueue, (snap) => {
@@ -80,17 +83,15 @@ const POSDashboard = () => {
     } catch (e) { console.error(e); } finally { setIsProcessing(false); }
   };
 
+  // --- UPDATED SHARE LOGIC: Message + Image + UPI Fix ---
   const handleWhatsAppSend = async (phone, name = "") => {
     if (!phone || phone.length < 10) return;
     const displayName = name || "Customer";
-    const updatedRecents = [{ phone, name: displayName }, ...recentCustomers.filter(c => c.phone !== phone)].slice(0, 5);
-    setRecentCustomers(updatedRecents);
-    localStorage.setItem('recent_customers', JSON.stringify(updatedRecents));
+    
+    // Fix: Using standard UPI deep link format for mobile apps
+    const upiLink = `upi://pay?pa=${MY_REAL_UPI_ID}&pn=Ambika%20Sandwich&am=${lastOrder.total}&cu=INR`;
 
-    const upiId = "yourname@upi"; 
-    const upiLink = `https://upilinks.in/pay/${upiId}/${lastOrder.total}`;
-
-    let message = `*🥪 AMBIKA SANDWICH 🥪*\n*Hello ${displayName}!* 👋\n*TOKEN: #${lastOrder.tokenNo}*\nPay: ${lastOrder.paymentMethod}\nDate: ${formatDate(lastOrder.timestamp)}\n--------------------------------\n`;
+    let message = `*🥪 AMBIKA SANDWICH 🥪*\n*Hello ${displayName}!* 👋\n*TOKEN: #${lastOrder.tokenNo}*\nPay: ${lastOrder.paymentMethod}\n--------------------------------\n`;
     lastOrder.items.forEach((item, idx) => {
       message += `${idx + 1}. ${item.name} (${item.isParcel ? '📦 [P]' : '🍽️ [D]'})\n   Price: ₹${item.price}\n`;
     });
@@ -99,11 +100,23 @@ const POSDashboard = () => {
     message += `⏳ *Ready in approx:* ${waitInfo.minutes} Mins`;
 
     try {
-      await Share.share({ title: 'Ambika Sandwich Bill', text: message, dialogTitle: 'Send Bill' });
+      // 1. Generate the Image first
+      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3 });
+      
+      // 2. Share Image and Message together
+      await Share.share({
+        title: 'Ambika Sandwich Bill',
+        text: message,
+        url: dataUrl,
+        dialogTitle: 'Send Bill to WhatsApp',
+      });
     } catch (error) {
+      console.error('Sharing failed', error);
+      // Web fallback
       const finalNum = phone.startsWith('91') ? phone : `91${phone}`;
       window.open(`https://wa.me/${finalNum}?text=${encodeURIComponent(message)}`, '_blank');
     }
+
     setShowPhoneModal(false);
     setShowReceipt(true);
   };
@@ -117,9 +130,13 @@ const POSDashboard = () => {
   const downloadPNG = async () => {
     if (!receiptRef.current) return;
     try {
-      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 2 });
-      await Share.share({ title: `Ambika-Token-${lastOrder.tokenNo}`, url: dataUrl });
-    } catch (error) { console.error(error); }
+      // Higher pixelRatio ensures the receipt isn't blurry
+      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3 });
+      await Share.share({ 
+        title: `Ambika-Token-${lastOrder.tokenNo}`, 
+        url: dataUrl 
+      });
+    } catch (error) { console.error("Download failed", error); }
   };
 
   const filteredHistory = orderHistory.filter(order => order.tokenNo?.toString().includes(historySearch));
@@ -127,18 +144,18 @@ const POSDashboard = () => {
   return (
     <div className="flex flex-col h-screen bg-[#F8F9FA] text-[#1A1A1A] overflow-hidden select-none font-sans">
       
-      {/* 1. COMPACT HEADER */}
+      {/* 1. HEADER */}
       <header className="p-4 bg-white border-b flex justify-between items-center shadow-sm z-30">
         <div className="text-left">
           <h1 className="text-xl font-black italic uppercase leading-none">Ambika <span className="text-[#FFC107]">Sandwich</span></h1>
-          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-1">Captain Mobile v1.8</p>
+          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-1">Captain Mobile v1.9</p>
         </div>
         <button onClick={() => setShowHistory(true)} className="p-2.5 bg-black text-white rounded-xl active:scale-90 transition-transform">
           <History size={20}/>
         </button>
       </header>
 
-      {/* 2. MENU CONTENT (2 Columns) */}
+      {/* 2. MENU CONTENT */}
       <main className="flex-grow overflow-y-auto p-4 pb-32">
         {Object.entries(MENU_DATA).map(([cat, items]) => (
           <div key={cat} className="mb-8 text-left">
@@ -178,7 +195,7 @@ const POSDashboard = () => {
         )}
       </AnimatePresence>
 
-      {/* 4. FULL-SCREEN MOBILE CART DRAWER */}
+      {/* 4. CART DRAWER */}
       <AnimatePresence>
         {showCartMobile && (
           <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }}
@@ -192,7 +209,7 @@ const POSDashboard = () => {
                 <div key={item.tempId} className="flex justify-between items-center p-4 bg-gray-50 rounded-[1.8rem] border border-gray-100">
                   <div className="flex items-center gap-4 text-left">
                     <button onClick={() => setCart(prev => prev.map((it, idx) => idx === i ? {...it, isParcel: !it.isParcel} : it))}
-                      className={`w-10 h-10 rounded-full border-2 font-black text-xs flex items-center justify-center ${item.isParcel ? 'bg-red-600 border-red-600 text-white' : 'text-gray-300'}`}>P</button>
+                      className={`w-10 h-10 rounded-full border-2 font-black text-xs flex items-center justify-center ${item.isParcel ? 'bg-red-600 border-red-600 text-white shadow-md' : 'border-gray-200 text-gray-300'}`}>P</button>
                     <div className="flex flex-col">
                       <span className="font-black text-xs uppercase leading-none">{item.name}</span>
                       <span className="text-[10px] font-bold text-[#2E7D32] mt-1">₹{item.price}</span>
@@ -218,7 +235,7 @@ const POSDashboard = () => {
         )}
       </AnimatePresence>
 
-      {/* 5. HISTORY MODAL (Slide-in) */}
+      {/* 5. HISTORY MODAL */}
       <AnimatePresence>
         {showHistory && (
           <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
@@ -273,6 +290,8 @@ const POSDashboard = () => {
           <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-6 backdrop-blur-sm">
             <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-[2rem] p-6 w-full max-w-xs relative">
               <button onClick={() => setShowReceipt(false)} className="absolute -top-2 -right-2 bg-red-500 text-white p-2 rounded-full shadow-lg"><X size={18}/></button>
+              
+              {/* THE IMAGE AREA */}
               <div ref={receiptRef} className="bg-white p-4 border-2 border-dashed border-gray-300 font-mono text-black text-[10px] text-left">
                 <h3 className="font-black text-center text-sm uppercase mb-4">Ambika Sandwich</h3>
                 <div className="border-y border-black py-4 my-2 text-center">
@@ -289,8 +308,9 @@ const POSDashboard = () => {
                 </div>
                 <div className="flex justify-between font-black text-sm border-t border-black pt-2 uppercase"><span>TOTAL</span><span>₹{lastOrder?.total}</span></div>
               </div>
+
               <button onClick={downloadPNG} className="w-full mt-6 bg-green-600 text-white py-4 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2">
-                <Download size={16}/> SHARE RECEIPT
+                <Download size={16}/> SHARE RECEIPT AS IMAGE
               </button>
             </motion.div>
           </div>
