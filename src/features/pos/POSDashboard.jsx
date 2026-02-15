@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShoppingCart, Download, Trash2, Clock, Zap, CheckCircle, X, MessageCircle, ArrowRight, User, Banknote, CreditCard, History, Search } from 'lucide-react';
+import { ShoppingCart, Download, Trash2, Zap, CheckCircle, X, History, MessageCircle, Search } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { Share } from '@capacitor/share'; 
-import { Filesystem, Directory } from '@capacitor/filesystem'; // Added for proper mobile file handling
+import { Filesystem, Directory } from '@capacitor/filesystem'; 
 import { MENU_DATA } from '../../utils/menuData';
 import { calculateWaitTime } from '../../utils/queueLogic';
 import { db } from '../../services/firebase';
@@ -19,10 +19,6 @@ const POSDashboard = () => {
   const [orderHistory, setOrderHistory] = useState([]);
   const [historySearch, setHistorySearch] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
-  const [showPhoneModal, setShowPhoneModal] = useState(false);
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerName, setCustomerName] = useState('');
-  const [recentCustomers, setRecentCustomers] = useState([]);
   const [lastOrder, setLastOrder] = useState(null);
   const [showCartMobile, setShowCartMobile] = useState(false); 
   const receiptRef = useRef(null);
@@ -43,23 +39,8 @@ const POSDashboard = () => {
       setOrderHistory(past);
     });
     onSnapshot(doc(db, "menu_status", "availability"), (d) => d.exists() && setAvailability(d.data()));
-    setRecentCustomers(JSON.parse(localStorage.getItem('recent_customers') || '[]'));
     return () => { unsubQueue(); unsubHistory(); };
   }, []);
-
-  const getNextTokenNumber = async () => {
-    const counterRef = doc(db, "app_status", "token_counter");
-    return await runTransaction(db, async (transaction) => {
-      const counterDoc = await transaction.get(counterRef);
-      if (!counterDoc.exists()) {
-        transaction.set(counterRef, { lastToken: 1 });
-        return 1;
-      }
-      const newCounter = counterDoc.data().lastToken + 1;
-      transaction.update(counterRef, { lastToken: newCounter });
-      return newCounter;
-    });
-  };
 
   const addToCart = (item) => {
     if (availability[item.id] === false) return;
@@ -73,75 +54,26 @@ const POSDashboard = () => {
     if (cart.length === 0 || isProcessing) return;
     setIsProcessing(true);
     try {
-      const tokenNo = await getNextTokenNumber();
+      const tokenNo = await runTransaction(db, async (transaction) => {
+        const counterRef = doc(db, "app_status", "token_counter");
+        const counterDoc = await transaction.get(counterRef);
+        const next = counterDoc.exists() ? counterDoc.data().lastToken + 1 : 1;
+        transaction.set(counterRef, { lastToken: next });
+        return next;
+      });
+
       const orderData = { tokenNo, items: cart, total: totalPrice, paymentMethod, status: 'preparing', timestamp: new Date() };
       await addDoc(collection(db, "orders"), { ...orderData, timestamp: serverTimestamp() });
+      
       setLastOrder(orderData);
       setCart([]);
       setShowCartMobile(false);
-      setShowPhoneModal(true);
+      setShowReceipt(true); // Now opens the bill immediately
     } catch (e) { console.error(e); } finally { setIsProcessing(false); }
   };
 
-  const handleWhatsAppSend = async (phone, name = "") => {
-    if (!phone || phone.length < 10) return;
-    const displayName = name || "Customer";
-    
-    // Fixed UPI link for mobile deep-linking
-    const upiLink = `upi://pay?pa=${MY_REAL_UPI_ID}&pn=Ambika%20Sandwich&am=${lastOrder.total}&cu=INR`;
-
-    let message = `*🥪 AMBIKA SANDWICH 🥪*\n*Hello ${displayName}!* 👋\n*TOKEN: #${lastOrder.tokenNo}*\nPay: ${lastOrder.paymentMethod}\n--------------------------------\n`;
-    lastOrder.items.forEach((item, idx) => {
-      message += `${idx + 1}. ${item.name} (${item.isParcel ? '📦' : '🍽️'})\n`;
-    });
-    message += `--------------------------------\n*TOTAL: ₹${lastOrder.total}*\n\n`;
-    if (lastOrder.paymentMethod === 'UPI') message += `✅ *TAP TO PAY:* \n${upiLink}\n\n`;
-    message += `⏳ *Ready in approx:* ${waitInfo.minutes} Mins`;
-
-    try {
-      // 1. Generate Image from Ref
-      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3, cacheBust: true });
-      
-      // 2. Save Image to temporary Filesystem to allow sharing file
-      const fileName = `Ambika_Token_${lastOrder.tokenNo}.png`;
-      const base64Data = dataUrl.split(',')[1];
-      
-      const savedFile = await Filesystem.writeFile({
-        path: fileName,
-        data: base64Data,
-        directory: Directory.Cache
-      });
-
-      // 3. Share text and image file together
-      await Share.share({
-        title: 'Ambika Bill',
-        text: message,
-        url: savedFile.uri, // Using the local URI for the image file
-        dialogTitle: `Sending Bill to ${displayName}`,
-      });
-
-      const updated = [{ phone, name: displayName }, ...recentCustomers.filter(c => c.phone !== phone)].slice(0, 5);
-      setRecentCustomers(updated);
-      localStorage.setItem('recent_customers', JSON.stringify(updated));
-
-    } catch (error) {
-      console.error("Native share failed", error);
-      // Web fallback
-      const finalNum = phone.startsWith('91') ? phone : `91${phone}`;
-      window.open(`https://wa.me/${finalNum}?text=${encodeURIComponent(message)}`, '_blank');
-    }
-    setShowPhoneModal(false);
-    setShowReceipt(true);
-  };
-
-  const formatDate = (date) => {
-    if (!date) return "";
-    const d = date instanceof Date ? date : date.toDate(); 
-    return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
-  };
-
-  // Re-using the same robust share logic for the download button
-  const downloadPNG = async () => {
+  // ACTION: SHARE TO WHATSAPP (Combined Image + Text)
+  const handleShareToWhatsApp = async () => {
     if (!receiptRef.current) return;
     try {
       const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3, cacheBust: true });
@@ -154,11 +86,39 @@ const POSDashboard = () => {
         directory: Directory.Cache
       });
 
+      const upiLink = `upi://pay?pa=${MY_REAL_UPI_ID}&pn=Ambika%20Sandwich&am=${lastOrder.total}&cu=INR`;
+      const message = `*🥪 AMBIKA SANDWICH #${lastOrder.tokenNo}*\nTotal: ₹${lastOrder.total}\nPay: ${lastOrder.paymentMethod}\n\n✅ *TAP TO PAY:* \n${upiLink}\n\n⏳ *Ready in approx:* ${waitInfo.minutes} Mins`;
+
       await Share.share({
-        title: `Ambika-Token-${lastOrder.tokenNo}`,
-        url: savedFile.uri 
+        title: 'Ambika Bill',
+        text: message,
+        url: savedFile.uri,
+        dialogTitle: 'Share to WhatsApp',
       });
-    } catch (error) { console.error("Download share failed", error); }
+    } catch (error) { console.error(error); }
+  };
+
+  // ACTION: DOWNLOAD PNG (Saved to Documents)
+  const handleDownloadPNG = async () => {
+    if (!receiptRef.current) return;
+    try {
+      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3 });
+      const fileName = `Ambika_Receipt_${lastOrder.tokenNo}.png`;
+      const base64Data = dataUrl.split(',')[1];
+
+      await Filesystem.writeFile({
+        path: fileName,
+        data: base64Data,
+        directory: Directory.Documents
+      });
+      alert("Bill saved to your Documents folder!");
+    } catch (error) { alert("Download failed. Check storage permissions."); }
+  };
+
+  const formatDate = (date) => {
+    if (!date) return "";
+    const d = date instanceof Date ? date : date.toDate(); 
+    return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
   };
 
   const filteredHistory = orderHistory.filter(order => order.tokenNo?.toString().includes(historySearch));
@@ -170,14 +130,14 @@ const POSDashboard = () => {
       <header className="p-4 bg-white border-b flex justify-between items-center shadow-sm z-30">
         <div className="text-left">
           <h1 className="text-xl font-black italic uppercase leading-none">Ambika <span className="text-[#FFC107]">Sandwich</span></h1>
-          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-1">Captain Mobile v2.1</p>
+          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-1">Captain Mobile v3.0</p>
         </div>
         <button onClick={() => setShowHistory(true)} className="p-2.5 bg-black text-white rounded-xl active:scale-90 transition-transform">
           <History size={20}/>
         </button>
       </header>
 
-      {/* 2. MENU CONTENT (2 Columns) */}
+      {/* 2. MENU CONTENT */}
       <main className="flex-grow overflow-y-auto p-4 pb-32">
         {Object.entries(MENU_DATA).map(([cat, items]) => (
           <div key={cat} className="mb-8 text-left">
@@ -197,7 +157,7 @@ const POSDashboard = () => {
         ))}
       </main>
 
-      {/* 3. MOBILE FLOATING CART SUMMARY */}
+      {/* 3. CART SUMMARY BAR */}
       <AnimatePresence>
         {cart.length > 0 && !showCartMobile && (
           <motion.div initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }}
@@ -213,13 +173,13 @@ const POSDashboard = () => {
         )}
       </AnimatePresence>
 
-      {/* 4. FULL-SCREEN MOBILE CART DRAWER */}
+      {/* 4. CART DRAWER */}
       <AnimatePresence>
         {showCartMobile && (
           <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }}
             className="fixed inset-0 bg-white z-[100] flex flex-col">
             <div className="p-6 border-b flex justify-between items-center">
-              <h2 className="text-2xl font-black italic uppercase text-left">Current <span className="text-[#FFC107]">Order</span></h2>
+              <h2 className="text-2xl font-black italic uppercase text-left">Your <span className="text-[#FFC107]">Order</span></h2>
               <button onClick={() => setShowCartMobile(false)} className="p-3 bg-gray-100 rounded-full"><X/></button>
             </div>
             <div className="flex-grow overflow-y-auto p-6 space-y-3">
@@ -242,11 +202,8 @@ const POSDashboard = () => {
                 <button onClick={() => setPaymentMethod('CASH')} className={`flex-1 py-3 rounded-xl font-black text-[10px] ${paymentMethod === 'CASH' ? 'bg-white text-black shadow-lg' : 'text-gray-500'}`}>CASH</button>
                 <button onClick={() => setPaymentMethod('UPI')} className={`flex-1 py-3 rounded-xl font-black text-[10px] ${paymentMethod === 'UPI' ? 'bg-[#FFC107] text-black shadow-lg' : 'text-gray-500'}`}>UPI</button>
               </div>
-              <div className="flex justify-between items-end mb-6 px-2 text-left">
-                <div><span className="block text-[10px] font-black text-gray-500 uppercase">Grand Total</span><span className="text-4xl block font-black">₹{totalPrice}</span></div>
-              </div>
-              <button onClick={handleCheckout} disabled={isProcessing} className="w-full py-5 bg-[#FFC107] text-black rounded-2xl font-black text-xl uppercase shadow-xl flex items-center justify-center gap-3 active:scale-95">
-                {isProcessing ? "PROCESSING..." : <><CheckCircle size={24} strokeWidth={3}/> CONFIRM</>}
+              <button onClick={handleCheckout} className="w-full py-5 bg-[#FFC107] text-black rounded-2xl font-black text-xl uppercase shadow-xl active:scale-95">
+                Confirm Order
               </button>
             </div>
           </motion.div>
@@ -282,57 +239,47 @@ const POSDashboard = () => {
         )}
       </AnimatePresence>
 
-      {/* 6. WHATSAPP & RECEIPT MODALS */}
-      <AnimatePresence>
-        {showPhoneModal && (
-          <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-6 backdrop-blur-md">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-[2.5rem] p-8 w-full shadow-2xl text-left">
-              <h2 className="text-2xl font-black uppercase italic mb-6 leading-tight">WhatsApp <span className="text-[#25D366]">Bill</span></h2>
-              <div className="space-y-4">
-                <input type="text" placeholder="Customer Name" value={customerName} onChange={(e) => setCustomerName(e.target.value)}
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl py-4 px-6 font-black text-sm focus:border-[#FFC107] outline-none text-left" />
-                <div className="relative text-left">
-                  <input type="tel" placeholder="Phone Number" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)}
-                    className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl py-4 px-6 font-black text-xl focus:border-[#25D366] outline-none" />
-                  <button onClick={() => handleWhatsAppSend(customerPhone, customerName)} className="absolute right-2 top-2 bg-[#25D366] text-white p-3 rounded-xl"><ArrowRight size={20} strokeWidth={3}/></button>
-                </div>
-              </div>
-              <button onClick={() => { setShowPhoneModal(false); setShowReceipt(true); }} className="w-full mt-6 py-3 text-gray-400 font-black text-[10px] uppercase">Skip to Receipt</button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
+      {/* 6. FINAL BILL MODAL WITH SHARE & DOWNLOAD */}
       <AnimatePresence>
         {showReceipt && (
-          <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-6 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-[2rem] p-6 w-full max-w-xs relative">
-              <button onClick={() => setShowReceipt(false)} className="absolute -top-2 -right-2 bg-red-500 text-white p-2 rounded-full shadow-lg"><X size={18}/></button>
+          <div className="fixed inset-0 bg-black/95 z-[200] flex items-center justify-center p-6 backdrop-blur-md">
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="w-full max-w-xs relative">
               
-              {/* THE IMAGE AREA */}
-              <div ref={receiptRef} className="bg-white p-4 border-2 border-dashed border-gray-300 font-mono text-black text-[10px] text-left">
-                <h3 className="font-black text-center text-sm uppercase mb-4 text-center">Ambika Sandwich</h3>
-                <div className="border-y border-black py-4 my-2 text-center">
-                  <span className="block text-[8px] font-black text-gray-400 uppercase mb-1">Token Number</span>
-                  <span className="font-black text-4xl italic">#{lastOrder?.tokenNo}</span>
+              {/* THE RECEIPT (Ref for PNG generation) */}
+              <div ref={receiptRef} className="bg-white p-6 rounded-t-[2.5rem] border-b-4 border-dashed border-gray-100 font-mono text-black text-[10px] text-left">
+                <div className="text-center mb-4">
+                  <h3 className="font-black text-lg uppercase italic tracking-tighter">Ambika Sandwich</h3>
+                  <p className="text-[8px] font-bold text-gray-400 uppercase mt-1">Fresh & Tasty Since 1998</p>
+                </div>
+                <div className="border-y-2 border-black py-4 my-3 text-center">
+                  <span className="block text-[8px] font-black uppercase text-gray-400">Token Number</span>
+                  <span className="font-black text-5xl italic tracking-tighter">#{lastOrder?.tokenNo}</span>
                 </div>
                 <div className="space-y-2 mb-4">
                   {lastOrder?.items?.map((it, idx) => (
                     <div key={idx} className="flex justify-between uppercase font-bold text-[9px]">
-                      <span>{it.isParcel ? 'P' : 'D'} 1x {it.name.substring(0,18)}</span>
+                      <span>{it.isParcel ? '📦' : '🍽️'} 1x {it.name.substring(0,18)}</span>
                       <span>₹{it.price}</span>
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-between font-black text-sm border-t border-black pt-2 uppercase"><span>TOTAL</span><span>₹{lastOrder?.total}</span></div>
+                <div className="flex justify-between font-black text-sm border-t-2 border-black pt-3 uppercase"><span>TOTAL</span><span>₹{lastOrder?.total}</span></div>
+                <div className="mt-6 text-center text-[7px] text-gray-400 font-bold uppercase tracking-widest">Thank You • Visit Again</div>
               </div>
 
-              <button 
-                onClick={handleWhatsAppSend.bind(null, customerPhone, customerName)} 
-                className="w-full mt-6 bg-green-600 text-white py-4 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg"
-              >
-                <MessageCircle size={16}/> SHARE MSG & IMAGE
-              </button>
+              {/* ACTION BUTTONS */}
+              <div className="bg-[#1A1A1A] p-4 rounded-b-[2.5rem] space-y-3 shadow-2xl">
+                <button onClick={handleShareToWhatsApp} className="w-full bg-[#25D366] text-white py-4 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-3 active:scale-95 transition-all">
+                  <MessageCircle size={18} strokeWidth={3}/> Share to WhatsApp
+                </button>
+                <div className="flex gap-3">
+                  <button onClick={handleDownloadPNG} className="flex-1 bg-white/10 text-white py-4 rounded-xl font-black text-[10px] uppercase flex items-center justify-center gap-2 active:scale-95">
+                    <Download size={14}/> Save PNG
+                  </button>
+                  <button onClick={() => setShowReceipt(false)} className="flex-1 bg-red-500/20 text-red-500 py-4 rounded-xl font-black text-[10px] uppercase active:scale-95">Close</button>
+                </div>
+              </div>
+
             </motion.div>
           </div>
         )}
