@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ambika Sandwich</string>
+    <string name="title_activity_main">Ambika Sandwich</string>
+    <string name="package_name">com.ambika.Sandwich</string>
+    <string name="custom_url_scheme">com.ambika.Sandwich</string>
+</resources>

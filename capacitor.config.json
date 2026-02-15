@@ -1,0 +1,6 @@
+{
+  "appId": "com.ambika.Sandwich",
+  "appName": "Ambika Sandwich",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

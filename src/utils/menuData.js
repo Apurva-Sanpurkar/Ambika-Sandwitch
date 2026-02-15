@@ -1,0 +1,35 @@
+export const MENU_DATA = {
+    SANDWICH: [
+      { id: 's1', name: 'Veg Sandwich', price: 50 },
+      { id: 's2', name: 'Veg Cheese Sandwich', price: 70 },
+      { id: 's3', name: 'Puneri Veg Sandwich', price: 100 },
+      { id: 's4', name: 'Cheese Mayo Sandwich', price: 100 },
+      { id: 's5', name: 'Cheese Tomato Sandwich', price: 70 },
+      { id: 's6', name: 'Cheese Potato Sandwich', price: 70 },
+      { id: 's7', name: 'Jain Sandwich', price: 70 },
+      { id: 's8', name: 'Jam Sandwich', price: 60 },
+      { id: 's9', name: 'Cheese Jam Sandwich', price: 70 },
+    ],
+    GRILL_SANDWICH: [
+      { id: 'g1', name: 'Veg Masala Grill', price: 90 },
+      { id: 'g2', name: 'Veg Cheese Masala Grill', price: 110 },
+      { id: 'g3', name: 'Veg Chz Masala Corn Grill', price: 110 },
+      { id: 'g4', name: 'Chz Tikka Mayo Masala Grill', price: 110 },
+      { id: 'g5', name: 'Veg Grill Sandwich', price: 90 },
+      { id: 'g6', name: 'Veg Cheese Grill Sandwich', price: 110 },
+      { id: 'g7', name: 'Plain Cheese Grill Sandwich', price: 110 },
+      { id: 'g8', name: 'Peshwai Veg Chz Grilled', price: 110 },
+      { id: 'g9', name: 'Bread Butter Grill', price: 50 },
+      { id: 'g10', name: 'Puneri Veg Chz Grilled', price: 110 },
+      { id: 'g11', name: 'Sadashiv Cheese Grill', price: 110 },
+      { id: 'g12', name: 'Veg Cheese Corn Grill', price: 110 },
+      { id: 'g13', name: 'Veg Chz Chezwan Grilled', price: 110 },
+      { id: 'g14', name: 'Capsicum Onion Chz Grilled', price: 110 },
+    ],
+    CHOCOLATE: [
+      { id: 'c1', name: 'Chocolate Sandwich', price: 60 },
+      { id: 'c2', name: 'Cheese Chocolate Sandwich', price: 80 },
+      { id: 'c3', name: 'Chocolate Grill', price: 70 },
+      { id: 'c4', name: 'Chz Chocolate Grill', price: 80 },
+    ]
+  };
