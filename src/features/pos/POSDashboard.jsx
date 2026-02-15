@@ -26,7 +26,7 @@ const POSDashboard = () => {
   const [showCartMobile, setShowCartMobile] = useState(false); 
   const receiptRef = useRef(null);
 
-  // REPLACE THIS with your actual UPI ID
+  // REPLACE THIS with your actual UPI ID for real payments
   const MY_REAL_UPI_ID = "apurvasanpurkar2010@okaxis"; 
 
   useEffect(() => {
@@ -83,40 +83,43 @@ const POSDashboard = () => {
     } catch (e) { console.error(e); } finally { setIsProcessing(false); }
   };
 
-  // --- UPDATED SHARE LOGIC: Message + Image + UPI Fix ---
+  // --- COMPREHENSIVE NATIVE SHARE (IMAGE + TEXT + UPI) ---
   const handleWhatsAppSend = async (phone, name = "") => {
     if (!phone || phone.length < 10) return;
     const displayName = name || "Customer";
     
-    // Fix: Using standard UPI deep link format for mobile apps
+    // Direct UPI link for mobile banking apps
     const upiLink = `upi://pay?pa=${MY_REAL_UPI_ID}&pn=Ambika%20Sandwich&am=${lastOrder.total}&cu=INR`;
 
     let message = `*🥪 AMBIKA SANDWICH 🥪*\n*Hello ${displayName}!* 👋\n*TOKEN: #${lastOrder.tokenNo}*\nPay: ${lastOrder.paymentMethod}\n--------------------------------\n`;
     lastOrder.items.forEach((item, idx) => {
-      message += `${idx + 1}. ${item.name} (${item.isParcel ? '📦 [P]' : '🍽️ [D]'})\n   Price: ₹${item.price}\n`;
+      message += `${idx + 1}. ${item.name} (${item.isParcel ? '📦' : '🍽️'})\n`;
     });
     message += `--------------------------------\n*TOTAL: ₹${lastOrder.total}*\n\n`;
     if (lastOrder.paymentMethod === 'UPI') message += `✅ *TAP TO PAY:* \n${upiLink}\n\n`;
     message += `⏳ *Ready in approx:* ${waitInfo.minutes} Mins`;
 
     try {
-      // 1. Generate the Image first
-      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3 });
+      // Generate High-Res Image
+      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3, cacheBust: true });
       
-      // 2. Share Image and Message together
+      // Share Image and Text as a single bundle
       await Share.share({
-        title: 'Ambika Sandwich Bill',
+        title: 'Ambika Bill',
         text: message,
         url: dataUrl,
-        dialogTitle: 'Send Bill to WhatsApp',
+        dialogTitle: `Sending Bill to ${displayName}`,
       });
+
+      // Save to Recent List
+      const updated = [{ phone, name: displayName }, ...recentCustomers.filter(c => c.phone !== phone)].slice(0, 5);
+      setRecentCustomers(updated);
+      localStorage.setItem('recent_customers', JSON.stringify(updated));
+
     } catch (error) {
-      console.error('Sharing failed', error);
-      // Web fallback
       const finalNum = phone.startsWith('91') ? phone : `91${phone}`;
       window.open(`https://wa.me/${finalNum}?text=${encodeURIComponent(message)}`, '_blank');
     }
-
     setShowPhoneModal(false);
     setShowReceipt(true);
   };
@@ -130,13 +133,9 @@ const POSDashboard = () => {
   const downloadPNG = async () => {
     if (!receiptRef.current) return;
     try {
-      // Higher pixelRatio ensures the receipt isn't blurry
-      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3 });
-      await Share.share({ 
-        title: `Ambika-Token-${lastOrder.tokenNo}`, 
-        url: dataUrl 
-      });
-    } catch (error) { console.error("Download failed", error); }
+      const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3, cacheBust: true });
+      await Share.share({ title: `Ambika-Token-${lastOrder.tokenNo}`, url: dataUrl });
+    } catch (error) { console.error(error); }
   };
 
   const filteredHistory = orderHistory.filter(order => order.tokenNo?.toString().includes(historySearch));
@@ -148,14 +147,14 @@ const POSDashboard = () => {
       <header className="p-4 bg-white border-b flex justify-between items-center shadow-sm z-30">
         <div className="text-left">
           <h1 className="text-xl font-black italic uppercase leading-none">Ambika <span className="text-[#FFC107]">Sandwich</span></h1>
-          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-1">Captain Mobile v1.9</p>
+          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-1">Captain Mobile v2.1</p>
         </div>
         <button onClick={() => setShowHistory(true)} className="p-2.5 bg-black text-white rounded-xl active:scale-90 transition-transform">
           <History size={20}/>
         </button>
       </header>
 
-      {/* 2. MENU CONTENT */}
+      {/* 2. MENU CONTENT (2 Columns) */}
       <main className="flex-grow overflow-y-auto p-4 pb-32">
         {Object.entries(MENU_DATA).map(([cat, items]) => (
           <div key={cat} className="mb-8 text-left">
@@ -164,12 +163,8 @@ const POSDashboard = () => {
             </h2>
             <div className="grid grid-cols-2 gap-3">
               {items.map(item => (
-                <button 
-                  key={item.id} 
-                  disabled={availability[item.id] === false} 
-                  onClick={() => addToCart(item)}
-                  className={`bg-white p-4 rounded-[2rem] border-b-4 flex flex-col items-start relative transition-all active:scale-95 ${availability[item.id] === false ? 'opacity-30 border-gray-200 pointer-events-none' : 'border-[#FFC107] shadow-sm'}`}
-                >
+                <button key={item.id} disabled={availability[item.id] === false} onClick={() => addToCart(item)}
+                  className={`bg-white p-4 rounded-[2rem] border-b-4 flex flex-col items-start relative transition-all active:scale-95 ${availability[item.id] === false ? 'opacity-30 border-gray-200 pointer-events-none' : 'border-[#FFC107] shadow-sm'}`}>
                   <span className="font-black text-[11px] uppercase text-left leading-tight h-8 overflow-hidden">{item.name}</span>
                   <span className="mt-2 font-black text-sm text-[#2E7D32]">₹{item.price}</span>
                 </button>
@@ -195,13 +190,13 @@ const POSDashboard = () => {
         )}
       </AnimatePresence>
 
-      {/* 4. CART DRAWER */}
+      {/* 4. FULL-SCREEN MOBILE CART DRAWER */}
       <AnimatePresence>
         {showCartMobile && (
           <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }}
             className="fixed inset-0 bg-white z-[100] flex flex-col">
             <div className="p-6 border-b flex justify-between items-center">
-              <h2 className="text-2xl font-black italic uppercase">Current <span className="text-[#FFC107]">Order</span></h2>
+              <h2 className="text-2xl font-black italic uppercase text-left">Current <span className="text-[#FFC107]">Order</span></h2>
               <button onClick={() => setShowCartMobile(false)} className="p-3 bg-gray-100 rounded-full"><X/></button>
             </div>
             <div className="flex-grow overflow-y-auto p-6 space-y-3">
@@ -241,7 +236,7 @@ const POSDashboard = () => {
           <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
             className="fixed inset-0 bg-white z-[150] flex flex-col p-6">
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-2xl font-black italic uppercase tracking-tighter">Order <span className="text-[#FFC107]">History</span></h2>
+              <h2 className="text-2xl font-black italic uppercase tracking-tighter text-left">Order <span className="text-[#FFC107]">History</span></h2>
               <button onClick={() => setShowHistory(false)} className="p-2 bg-gray-100 rounded-full"><X size={20}/></button>
             </div>
             <div className="relative mb-6">
@@ -272,8 +267,8 @@ const POSDashboard = () => {
               <h2 className="text-2xl font-black uppercase italic mb-6 leading-tight">WhatsApp <span className="text-[#25D366]">Bill</span></h2>
               <div className="space-y-4">
                 <input type="text" placeholder="Customer Name" value={customerName} onChange={(e) => setCustomerName(e.target.value)}
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl py-4 px-6 font-black text-sm focus:border-[#FFC107] outline-none" />
-                <div className="relative">
+                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl py-4 px-6 font-black text-sm focus:border-[#FFC107] outline-none text-left" />
+                <div className="relative text-left">
                   <input type="tel" placeholder="Phone Number" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)}
                     className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl py-4 px-6 font-black text-xl focus:border-[#25D366] outline-none" />
                   <button onClick={() => handleWhatsAppSend(customerPhone, customerName)} className="absolute right-2 top-2 bg-[#25D366] text-white p-3 rounded-xl"><ArrowRight size={20} strokeWidth={3}/></button>
@@ -309,8 +304,8 @@ const POSDashboard = () => {
                 <div className="flex justify-between font-black text-sm border-t border-black pt-2 uppercase"><span>TOTAL</span><span>₹{lastOrder?.total}</span></div>
               </div>
 
-              <button onClick={downloadPNG} className="w-full mt-6 bg-green-600 text-white py-4 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2">
-                <Download size={16}/> SHARE RECEIPT AS IMAGE
+              <button onClick={downloadPNG} className="w-full mt-6 bg-green-600 text-white py-4 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 active:scale-95 transition-all">
+                <Download size={16}/> SHARE MSG & IMAGE
               </button>
             </motion.div>
           </div>
