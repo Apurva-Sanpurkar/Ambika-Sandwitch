@@ -149,14 +149,23 @@ const POSDashboard = () => {
   const handleProfessionalShare = async () => {
     if (!receiptRef.current) return;
     try {
+      // 1. Generate High-Res Image
       const dataUrl = await toPng(receiptRef.current, { backgroundColor: '#fff', pixelRatio: 3, cacheBust: true });
       const fileName = `Ambika_Bill_${lastOrder.tokenNo}.png`;
-      const savedFile = await Filesystem.writeFile({ path: fileName, data: dataUrl.split(',')[1], directory: Directory.Cache });
+      const base64Data = dataUrl.split(',')[1];
       
+      // 2. Save Image to Cache for sharing
+      const savedFile = await Filesystem.writeFile({
+        path: fileName,
+        data: base64Data,
+        directory: Directory.Cache
+      });
+
+      // 3. Construct Professional Text Message
       const upiLink = `upi://pay?pa=${MY_REAL_UPI_ID}&pn=Ambika%20Sandwich&am=${lastOrder.total}&cu=INR`;
       const message = `*🥪 AMBIKA SANDWICH 🥪*\n` +
         `--------------------------------\n` +
-        `*Hello ${customerName || 'Customer'}!* 👋\n\n` +
+        `*Hello ${customerName || 'Valued Customer'}!* 👋\n\n` +
         `*TOKEN: #${lastOrder.tokenNo}*\n` +
         `*Total: ₹${lastOrder.total}*\n` +
         `*Payment: ${lastOrder.paymentMethod}*\n\n` +
@@ -165,19 +174,42 @@ const POSDashboard = () => {
         `--------------------------------\n` +
         `*Visit Again!* ✨`;
 
+      // 4. LOGIC FOR TARGETED NUMBER
       if (customerPhone && customerPhone.length >= 10) {
         const cleanPhone = customerPhone.startsWith('91') ? customerPhone : `91${customerPhone}`;
-        await Share.share({ title: 'Bill', url: savedFile.uri });
-        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+        
+        // FIRST: Share the image natively (Pick the contact)
+        await Share.share({
+          title: 'Ambika Bill Image',
+          url: savedFile.uri,
+        });
+
+        // SECOND: Delay slightly, then open the specific chat with the text pre-filled
+        setTimeout(() => {
+          const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+          window.open(whatsappUrl, '_blank');
+        }, 1500); 
+
       } else {
-        await Share.share({ title: 'Bill', text: message, url: savedFile.uri });
+        // Fallback: If no number, try to share both together (General Share)
+        await Share.share({
+          title: 'Ambika Bill',
+          text: message,
+          url: savedFile.uri,
+          dialogTitle: 'Share Receipt',
+        });
       }
 
+      // Save to CRM
       if (customerPhone) {
         const updated = [{ phone: customerPhone, name: customerName }, ...recentCustomers.filter(c => c.phone !== customerPhone)].slice(0, 5);
-        setRecentCustomers(updated); localStorage.setItem('recent_customers', JSON.stringify(updated));
+        setRecentCustomers(updated);
+        localStorage.setItem('recent_customers', JSON.stringify(updated));
       }
-    } catch (error) { console.error(error); }
+    } catch (error) { 
+      console.error("Sharing failed", error);
+      alert("Could not complete share. Check permissions.");
+    }
   };
 
   const handleDownloadPNG = async () => {
