@@ -80,20 +80,16 @@ const POSDashboard = () => {
 
   // --- PDF REPORT GENERATION ---
   const generateSalesPDF = async (type) => {
-    const doc = new jsPDF(); // Ensure uppercase P
+    const doc = new jsPDF();
     const now = new Date();
     
-    // 1. Setup Header
-    const title = type === 'day' 
-      ? `DAILY SALES REPORT - ${now.toDateString()}` 
-      : `MONTHLY SALES REPORT - ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
-  
+    // 1. Report Content Setup
     doc.setFontSize(22);
     doc.text("AMBIKA SANDWICH", 14, 20);
     doc.setFontSize(10);
-    doc.text(title, 14, 28);
+    const title = type === 'day' ? "DAILY" : "MONTHLY";
+    doc.text(`${title} SALES REPORT | ${now.toLocaleDateString()}`, 14, 28);
   
-    // 2. Filter data from your orderHistory state
     const filtered = orderHistory.filter(o => {
       const d = o.timestamp?.toDate ? o.timestamp.toDate() : new Date(o.timestamp);
       return type === 'day' 
@@ -101,7 +97,6 @@ const POSDashboard = () => {
         : d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     });
   
-    // 3. Create Table
     const body = filtered.map((o, i) => [
       i + 1,
       `#${o.tokenNo}`,
@@ -114,37 +109,42 @@ const POSDashboard = () => {
       head: [['Sr.', 'Token', 'Method', 'Amount']],
       body: body,
       theme: 'striped',
-      headStyles: { fillColor: [255, 193, 7], textColor: 0 }, // Ambika Yellow
-      foot: [['', '', 'TOTAL REVENUE', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
+      headStyles: { fillColor: [255, 193, 7], textColor: 0 },
+      foot: [['', '', 'TOTAL', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
       footStyles: { fillColor: [0, 0, 0] }
     });
   
+    // 2. ALTERNATE DOWNLOAD STRATEGY
     try {
-      // 4. FIX: Clean the Base64 string properly
-      const pdfDataUri = doc.output('datauristring');
-      const pdfBase64 = pdfDataUri.split(',')[1];
-      const fileName = `Ambika_Report_${type}_${Date.now()}.pdf`;
+      // Generate the PDF as a Blob (Binary Large Object)
+      const blob = doc.output('blob');
+      const fileName = `Ambika_${type}_Report_${Date.now()}.pdf`;
   
-      // 5. Save to Documents folder (Permanently downloadable)
-      const result = await Filesystem.writeFile({
-        path: fileName,
-        data: pdfBase64,
-        directory: Directory.Documents, 
-        recursive: true
-      });
+      // Convert Blob to Base64 manually for Filesystem
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64data = reader.result.split(',')[1];
+        
+        // Save and Share
+        const result = await Filesystem.writeFile({
+          path: fileName,
+          data: base64data,
+          directory: Directory.Documents,
+          recursive: true
+        });
   
-      // 6. Open Share Sheet
-      await Share.share({
-        title: 'Ambika Sales Report',
-        url: result.uri
-      });
-  
-    } catch (e) {
-      console.error("PDF Error:", e);
-      alert("Check phone storage permissions.");
+        await Share.share({
+          title: 'Ambika Sales Report',
+          url: result.uri
+        });
+      };
+    } catch (error) {
+      console.error("Download failed:", error);
+      // Final fallback: Try opening in a new tab (Web way)
+      doc.save(`Ambika_${type}_Report.pdf`);
     }
   };
-
   // --- POS BUSINESS ACTIONS ---
   const addToCart = (item) => {
     if (availability[item.id] === false) return;
