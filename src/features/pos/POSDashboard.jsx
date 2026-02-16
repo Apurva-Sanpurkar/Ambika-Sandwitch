@@ -81,68 +81,69 @@ const POSDashboard = () => {
 
   // --- PDF REPORT GENERATION ---
   const generateSalesPDF = async (type) => {
-  console.log("PDF Generation Triggered:", type);
+    console.log("Starting Production PDF Flow for:", type);
+    
+    try {
+      const doc = new jsPDF();
+      const now = new Date();
+      
+      // 1. Setup PDF Content
+      doc.setFontSize(22);
+      doc.text("AMBIKA SANDWICH", 14, 20);
+      doc.setFontSize(10);
+      doc.text(`${type.toUpperCase()} SALES REPORT | ${now.toLocaleDateString()}`, 14, 28);
   
-  try {
-    // 1. Initialize PDF
-    const doc = new jsPDF();
-    const now = new Date();
-    
-    // Header Styling
-    doc.setFontSize(22);
-    doc.text("AMBIKA SANDWICH", 14, 20);
-    doc.setFontSize(10);
-    doc.text(`${type.toUpperCase()} SALES REPORT | ${now.toLocaleDateString()}`, 14, 28);
-
-    // 2. Data Filtering
-    const filtered = orderHistory.filter(o => {
-      const d = o.timestamp?.toDate ? o.timestamp.toDate() : new Date(o.timestamp);
-      return type === 'day' 
-        ? d.toDateString() === now.toDateString() 
-        : d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
-
-    const body = filtered.map((o, i) => [
-      i + 1,
-      `#${o.tokenNo}`,
-      o.paymentMethod || 'CASH',
-      `Rs. ${o.total}`
-    ]);
-
-    // 3. Table Generation
-    doc.autoTable({
-      startY: 35,
-      head: [['Sr.', 'Token', 'Method', 'Amount']],
-      body: body,
-      theme: 'grid',
-      headStyles: { fillColor: [255, 193, 7], textColor: 0 },
-      foot: [['', '', 'TOTAL REVENUE', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
-      footStyles: { fillColor: [0, 0, 0] }
-    });
-
-    // 4. THE STRONGEST DOWNLOAD METHOD (Blob + Hidden Link)
-    const pdfBlob = doc.output('blob');
-    const url = URL.createObjectURL(pdfBlob);
-    const link = document.createElement('a');
-    
-    link.href = url;
-    link.download = `Ambika_${type}_Report_${Date.now()}.pdf`;
-    
-    // Append to body, click, and remove
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    // Clean up memory
-    setTimeout(() => URL.revokeObjectURL(url), 100);
-
-    alert("Download started! Please check your notifications or 'Downloads' folder.");
-
-  } catch (error) {
-    console.error("PDF Error:", error);
-    alert("Generation failed. Check console for logs.");
-  }
-};
+      const filtered = orderHistory.filter(o => {
+        const d = o.timestamp?.toDate ? o.timestamp.toDate() : new Date(o.timestamp);
+        return type === 'day' 
+          ? d.toDateString() === now.toDateString() 
+          : d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      });
+  
+      const body = filtered.map((o, i) => [
+        i + 1,
+        `#${o.tokenNo}`,
+        o.paymentMethod || 'CASH',
+        `Rs. ${o.total}`
+      ]);
+  
+      doc.autoTable({
+        startY: 35,
+        head: [['Sr.', 'Token', 'Method', 'Amount']],
+        body: body,
+        theme: 'striped',
+        headStyles: { fillColor: [255, 193, 7], textColor: 0 },
+        foot: [['', '', 'TOTAL REVENUE', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
+        footStyles: { fillColor: [0, 0, 0] }
+      });
+  
+      // 2. THE FIX: Convert to Base64 and STRIP the header
+      // Capacitor Filesystem CANNOT read the "data:application/pdf;base64," part
+      const pdfDataUri = doc.output('datauristring');
+      const rawBase64 = pdfDataUri.split(',')[1]; 
+  
+      const fileName = `Ambika_${type}_${Date.now()}.pdf`;
+  
+      // 3. Write to Native Cache (Most reliable for immediate sharing)
+      const savedFile = await Filesystem.writeFile({
+        path: fileName,
+        data: rawBase64,
+        directory: Directory.Cache, // Use Cache first to ensure write success
+        recursive: true
+      });
+  
+      // 4. Trigger Native Share Sheet
+      // This allows the owner to save it to their Drive, WhatsApp, or Downloads
+      await Share.share({
+        title: 'Ambika Sales Report',
+        url: savedFile.uri
+      });
+  
+    } catch (error) {
+      console.error("PDF PRODUCTION ERROR:", error);
+      alert("System Error: " + error.message);
+    }
+  };
   // --- POS BUSINESS ACTIONS ---
   const addToCart = (item) => {
     if (availability[item.id] === false) return;
