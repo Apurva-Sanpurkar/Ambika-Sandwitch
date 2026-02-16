@@ -82,42 +82,54 @@ const POSDashboard = () => {
   const generateSalesPDF = async (type) => {
     const doc = new jsPDF();
     const now = new Date();
-    const title = type === 'day' ? `DAILY SALES REPORT - ${now.toDateString()}` : `MONTHLY SALES REPORT - ${now.toLocaleString('default', { month: 'long' })}`;
     
-    doc.setFontSize(22); doc.setTextColor(40); doc.text("AMBIKA SANDWICH", 14, 20);
-    doc.setFontSize(12); doc.text(title, 14, 30);
-
+    // Header
+    doc.setFontSize(22);
+    doc.text("AMBIKA SANDWICH", 14, 20);
+    doc.setFontSize(10);
+    doc.text(`${type.toUpperCase()} SALES REPORT | ${now.toLocaleDateString()}`, 14, 28);
+  
+    // Filter Logic
     const filtered = orderHistory.filter(o => {
       const d = o.timestamp?.toDate ? o.timestamp.toDate() : new Date(o.timestamp);
-      return type === 'day' ? d.toDateString() === now.toDateString() : d.getMonth() === now.getMonth();
+      return type === 'day' 
+        ? d.toDateString() === now.toDateString() 
+        : d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     });
-
-    const body = filtered.map(o => [
-      `#${o.tokenNo}`, 
-      o.timestamp?.toDate ? o.timestamp.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '',
-      o.paymentMethod, 
+  
+    // Table Data
+    const body = filtered.map((o, i) => [
+      i + 1,
+      `#${o.tokenNo}`,
+      o.paymentMethod || 'CASH',
       `Rs. ${o.total}`
     ]);
-
-    doc.autoTable({ 
-      startY: 40, 
-      head: [['TOKEN', 'TIME', 'PAYMENT', 'AMOUNT']], 
-      body,
-      theme: 'grid',
-      headStyles: { fillColor: [255, 193, 7] },
-      foot: [['', '', 'GRAND TOTAL', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
-      footStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] }
+  
+    doc.autoTable({
+      startY: 35,
+      head: [['Sr.', 'Token', 'Method', 'Amount']],
+      body: body,
+      theme: 'striped',
+      headStyles: { fillColor: [255, 193, 7], textColor: 0 },
+      foot: [['', '', 'TOTAL REVENUE', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
+      footStyles: { fillColor: [0, 0, 0] }
     });
-
-    const pdfBase64 = doc.output('datauristring').split(',')[1];
+  
     try {
-      const file = await Filesystem.writeFile({
-        path: `Ambika_Report_${type}_${Date.now()}.pdf`,
+      const pdfBase64 = doc.output('datauristring').split(',')[1];
+      const fileName = `Ambika_Report_${Date.now()}.pdf`;
+  
+      const result = await Filesystem.writeFile({
+        path: fileName,
         data: pdfBase64,
-        directory: Directory.Documents
+        directory: Directory.Documents, // Essential for Android visibility
+        recursive: true
       });
-      await Share.share({ title: 'Sales Report', url: file.uri });
-    } catch (e) { alert("PDF Export Failed"); }
+  
+      await Share.share({ title: 'Sales Report', url: result.uri });
+    } catch (e) {
+      alert("PDF Error: Check Storage Permissions");
+    }
   };
 
   // --- POS BUSINESS ACTIONS ---
@@ -162,11 +174,27 @@ const POSDashboard = () => {
       const upiLink = `upi://pay?pa=${MY_REAL_UPI_ID}&pn=Ambika%20Sandwich&am=${lastOrder.total}&cu=INR`;
       
       // We put the phone number in the title/text so it appears in the share sheet
-      const caption = `*🥪 AMBIKA SANDWICH #${lastOrder.tokenNo}*\n` +
-                      `Hello ${customerName || 'Valued Customer'}! 👋\n` +
-                      `Total: *₹${lastOrder.total}*\n` +
-                      `✅ *TAP TO PAY:* ${upiLink}\n\n` +
-                      `Thank you! ✨`;
+      const itemsList = lastOrder.items
+      .map((it, idx) => `${idx + 1}. ${it.name} ${it.isParcel ? '📦' : '🍽️'} - ₹${it.price}`)
+      .join('\n');
+    
+    const caption = 
+      `*🥪 AMBIKA SANDWICH * 🥪\n` +
+      `--------------------------------------------\n` +
+      `*BILLING DETAILS*\n` +
+      `--------------------------------------------\n` +
+      `*Token:* #${lastOrder.tokenNo}\n` +
+      `*Customer:* ${customerName || 'Valued Guest'}\n` +
+      `*Date:* ${new Date().toLocaleDateString()}\n` +
+      `--------------------------------------------\n` +
+      `*ITEMS ORDERED:*\n` +
+      `${itemsList}\n` +
+      `--------------------------------------------\n` +
+      `*GRAND TOTAL: ₹${lastOrder.total}*\n` +
+      `--------------------------------------------\n\n` +
+      `✅ *TAP TO PAY VIA UPI:*\n${upiLink}\n\n` +
+      `✨ _Thank you for your order!_\n` +
+      `🚀 _Your sandwich is being prepared with care._`;
 
       // NATIVE BUNDLE: This sends Image + Text as one package
       await Share.share({
