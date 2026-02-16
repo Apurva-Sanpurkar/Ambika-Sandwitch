@@ -9,7 +9,7 @@ import { toPng } from 'html-to-image';
 import { Share } from '@capacitor/share'; 
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable'; 
 
 import { MENU_DATA } from '../../utils/menuData';
 import { calculateWaitTime } from '../../utils/queueLogic';
@@ -80,6 +80,8 @@ const POSDashboard = () => {
   }, [orderHistory]);
 
   // --- PDF REPORT GENERATION ---
+// Import the function directly
+  
   const generateSalesPDF = async (type) => {
     console.log("Starting Production PDF Flow for:", type);
     
@@ -107,7 +109,8 @@ const POSDashboard = () => {
         `Rs. ${o.total}`
       ]);
   
-      doc.autoTable({
+      // 2. THE FIX: Call autoTable as a standalone function passing the doc
+      autoTable(doc, {
         startY: 35,
         head: [['Sr.', 'Token', 'Method', 'Amount']],
         body: body,
@@ -117,23 +120,21 @@ const POSDashboard = () => {
         footStyles: { fillColor: [0, 0, 0] }
       });
   
-      // 2. THE FIX: Convert to Base64 and STRIP the header
-      // Capacitor Filesystem CANNOT read the "data:application/pdf;base64," part
+      // 3. Convert to Base64 and STRIP the header
       const pdfDataUri = doc.output('datauristring');
       const rawBase64 = pdfDataUri.split(',')[1]; 
   
       const fileName = `Ambika_${type}_${Date.now()}.pdf`;
   
-      // 3. Write to Native Cache (Most reliable for immediate sharing)
+      // 4. Write to Native Cache
       const savedFile = await Filesystem.writeFile({
         path: fileName,
         data: rawBase64,
-        directory: Directory.Cache, // Use Cache first to ensure write success
+        directory: Directory.Cache,
         recursive: true
       });
   
-      // 4. Trigger Native Share Sheet
-      // This allows the owner to save it to their Drive, WhatsApp, or Downloads
+      // 5. Trigger Native Share Sheet
       await Share.share({
         title: 'Ambika Sales Report',
         url: savedFile.uri
