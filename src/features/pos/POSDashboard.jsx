@@ -10,6 +10,7 @@ import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+
 import { MENU_DATA } from '../../utils/menuData';
 import { calculateWaitTime } from '../../utils/queueLogic';
 import { db } from '../../services/firebase';
@@ -80,74 +81,68 @@ const POSDashboard = () => {
 
   // --- PDF REPORT GENERATION ---
   const generateSalesPDF = async (type) => {
-    console.log("PDF Generation Started for:", type);
-    setIsProcessing(true); // Prevent double clicks
+  console.log("PDF Generation Triggered:", type);
   
-    try {
-      const doc = new jsPDF(); // Note: must be 'new jsPDF()'
-      const now = new Date();
-      
-      // 1. CONTENT GENERATION
-      doc.setFontSize(20);
-      doc.text("AMBIKA SANDWICH REPORT", 14, 20);
-      
-      const filtered = orderHistory.filter(o => {
-        const d = o.timestamp?.toDate ? o.timestamp.toDate() : new Date(o.timestamp);
-        return type === 'day' 
-          ? d.toDateString() === now.toDateString() 
-          : d.getMonth() === now.getMonth();
-      });
-  
-      console.log("Filtered Orders Count:", filtered.length);
-  
-      const body = filtered.map((o, i) => [
-        i + 1,
-        `#${o.tokenNo}`,
-        o.paymentMethod || 'CASH',
-        `Rs. ${o.total}`
-      ]);
-  
-      doc.autoTable({
-        startY: 30,
-        head: [['Sr.', 'Token', 'Method', 'Amount']],
-        body: body,
-        theme: 'grid',
-        headStyles: { fillColor: [255, 193, 7] }
-      });
-  
-      // 2. FILE CONVERSION
-      console.log("Converting to Base64...");
-      const pdfBase64 = doc.output('datauristring').split(',')[1];
-  
-      // 3. NATIVE WRITE
-      const fileName = `Ambika_${type}_${Date.now()}.pdf`;
-      console.log("Attempting to write file:", fileName);
-  
-      const result = await Filesystem.writeFile({
-        path: fileName,
-        data: pdfBase64,
-        directory: Directory.Documents,
-        recursive: true
-      });
-  
-      console.log("File saved at:", result.uri);
-  
-      // 4. NATIVE SHARE
-      await Share.share({
-        title: 'Ambika Sales Report',
-        url: result.uri
-      });
-  
-      alert("Report Generated Successfully!");
-  
-    } catch (error) {
-      console.error("CRITICAL PDF ERROR:", error);
-      alert("Error: " + error.message);
-    } finally {
-      setIsProcessing(false);
-      console.log("PDF Flow Finished");
-    }
-  };
+  try {
+    // 1. Initialize PDF
+    const doc = new jsPDF();
+    const now = new Date();
+    
+    // Header Styling
+    doc.setFontSize(22);
+    doc.text("AMBIKA SANDWICH", 14, 20);
+    doc.setFontSize(10);
+    doc.text(`${type.toUpperCase()} SALES REPORT | ${now.toLocaleDateString()}`, 14, 28);
+
+    // 2. Data Filtering
+    const filtered = orderHistory.filter(o => {
+      const d = o.timestamp?.toDate ? o.timestamp.toDate() : new Date(o.timestamp);
+      return type === 'day' 
+        ? d.toDateString() === now.toDateString() 
+        : d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    });
+
+    const body = filtered.map((o, i) => [
+      i + 1,
+      `#${o.tokenNo}`,
+      o.paymentMethod || 'CASH',
+      `Rs. ${o.total}`
+    ]);
+
+    // 3. Table Generation
+    doc.autoTable({
+      startY: 35,
+      head: [['Sr.', 'Token', 'Method', 'Amount']],
+      body: body,
+      theme: 'grid',
+      headStyles: { fillColor: [255, 193, 7], textColor: 0 },
+      foot: [['', '', 'TOTAL REVENUE', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
+      footStyles: { fillColor: [0, 0, 0] }
+    });
+
+    // 4. THE STRONGEST DOWNLOAD METHOD (Blob + Hidden Link)
+    const pdfBlob = doc.output('blob');
+    const url = URL.createObjectURL(pdfBlob);
+    const link = document.createElement('a');
+    
+    link.href = url;
+    link.download = `Ambika_${type}_Report_${Date.now()}.pdf`;
+    
+    // Append to body, click, and remove
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Clean up memory
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+
+    alert("Download started! Please check your notifications or 'Downloads' folder.");
+
+  } catch (error) {
+    console.error("PDF Error:", error);
+    alert("Generation failed. Check console for logs.");
+  }
+};
   // --- POS BUSINESS ACTIONS ---
   const addToCart = (item) => {
     if (availability[item.id] === false) return;
