@@ -80,16 +80,20 @@ const POSDashboard = () => {
 
   // --- PDF REPORT GENERATION ---
   const generateSalesPDF = async (type) => {
-    const doc = new jsPDF();
+    const doc = new jsPDF(); // Ensure uppercase P
     const now = new Date();
     
-    // Header
+    // 1. Setup Header
+    const title = type === 'day' 
+      ? `DAILY SALES REPORT - ${now.toDateString()}` 
+      : `MONTHLY SALES REPORT - ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+  
     doc.setFontSize(22);
     doc.text("AMBIKA SANDWICH", 14, 20);
     doc.setFontSize(10);
-    doc.text(`${type.toUpperCase()} SALES REPORT | ${now.toLocaleDateString()}`, 14, 28);
+    doc.text(title, 14, 28);
   
-    // Filter Logic
+    // 2. Filter data from your orderHistory state
     const filtered = orderHistory.filter(o => {
       const d = o.timestamp?.toDate ? o.timestamp.toDate() : new Date(o.timestamp);
       return type === 'day' 
@@ -97,7 +101,7 @@ const POSDashboard = () => {
         : d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     });
   
-    // Table Data
+    // 3. Create Table
     const body = filtered.map((o, i) => [
       i + 1,
       `#${o.tokenNo}`,
@@ -110,25 +114,34 @@ const POSDashboard = () => {
       head: [['Sr.', 'Token', 'Method', 'Amount']],
       body: body,
       theme: 'striped',
-      headStyles: { fillColor: [255, 193, 7], textColor: 0 },
+      headStyles: { fillColor: [255, 193, 7], textColor: 0 }, // Ambika Yellow
       foot: [['', '', 'TOTAL REVENUE', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
       footStyles: { fillColor: [0, 0, 0] }
     });
   
     try {
-      const pdfBase64 = doc.output('datauristring').split(',')[1];
-      const fileName = `Ambika_Report_${Date.now()}.pdf`;
+      // 4. FIX: Clean the Base64 string properly
+      const pdfDataUri = doc.output('datauristring');
+      const pdfBase64 = pdfDataUri.split(',')[1];
+      const fileName = `Ambika_Report_${type}_${Date.now()}.pdf`;
   
+      // 5. Save to Documents folder (Permanently downloadable)
       const result = await Filesystem.writeFile({
         path: fileName,
         data: pdfBase64,
-        directory: Directory.Documents, // Essential for Android visibility
+        directory: Directory.Documents, 
         recursive: true
       });
   
-      await Share.share({ title: 'Sales Report', url: result.uri });
+      // 6. Open Share Sheet
+      await Share.share({
+        title: 'Ambika Sales Report',
+        url: result.uri
+      });
+  
     } catch (e) {
-      alert("PDF Error: Check Storage Permissions");
+      console.error("PDF Error:", e);
+      alert("Check phone storage permissions.");
     }
   };
 
