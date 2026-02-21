@@ -2,5 +2,10 @@
   "appId": "com.ambika.Sandwich",
   "appName": "Ambika Sandwich",
   "webDir": "dist",
-  "bundledWebRuntime": false
+  "bundledWebRuntime": false,
+  "plugins": {
+    "ScreenOrientation": { 
+      "orientation": "portrait" 
+    }
+  }
 }

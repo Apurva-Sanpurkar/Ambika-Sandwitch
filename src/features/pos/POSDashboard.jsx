@@ -82,69 +82,61 @@ const POSDashboard = () => {
   // --- PDF REPORT GENERATION ---
 // Import the function directly
   
-  const generateSalesPDF = async (type) => {
-    console.log("Starting Production PDF Flow for:", type);
+const generateSalesPDF = async (type) => {
+  try {
+    const doc = new jsPDF();
+    const now = new Date();
     
-    try {
-      const doc = new jsPDF();
-      const now = new Date();
-      
-      // 1. Setup PDF Content
-      doc.setFontSize(22);
-      doc.text("AMBIKA SANDWICH", 14, 20);
-      doc.setFontSize(10);
-      doc.text(`${type.toUpperCase()} SALES REPORT | ${now.toLocaleDateString()}`, 14, 28);
-  
-      const filtered = orderHistory.filter(o => {
-        const d = o.timestamp?.toDate ? o.timestamp.toDate() : new Date(o.timestamp);
-        return type === 'day' 
-          ? d.toDateString() === now.toDateString() 
-          : d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      });
-  
-      const body = filtered.map((o, i) => [
-        i + 1,
-        `#${o.tokenNo}`,
-        o.paymentMethod || 'CASH',
-        `Rs. ${o.total}`
-      ]);
-  
-      // 2. THE FIX: Call autoTable as a standalone function passing the doc
-      autoTable(doc, {
-        startY: 35,
-        head: [['Sr.', 'Token', 'Method', 'Amount']],
-        body: body,
-        theme: 'striped',
-        headStyles: { fillColor: [255, 193, 7], textColor: 0 },
-        foot: [['', '', 'TOTAL REVENUE', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
-        footStyles: { fillColor: [0, 0, 0] }
-      });
-  
-      // 3. Convert to Base64 and STRIP the header
-      const pdfDataUri = doc.output('datauristring');
-      const rawBase64 = pdfDataUri.split(',')[1]; 
-  
-      const fileName = `Ambika_${type}_${Date.now()}.pdf`;
-  
-      // 4. Write to Native Cache
-      const savedFile = await Filesystem.writeFile({
-        path: fileName,
-        data: rawBase64,
-        directory: Directory.Cache,
-        recursive: true
-      });
-  
-      // 5. Trigger Native Share Sheet
-      await Share.share({
-        title: 'Ambika Sales Report',
-        url: savedFile.uri
-      });
-  
-    } catch (error) {
-      console.error("PDF PRODUCTION ERROR:", error);
-      alert("System Error: " + error.message);
-    }
-  };
+    // 1. Setup PDF Content
+    doc.setFontSize(22);
+    doc.text("AMBIKA SANDWICH", 14, 20);
+    doc.setFontSize(10);
+    doc.text(`${type.toUpperCase()} SALES REPORT | ${now.toLocaleDateString()}`, 14, 28);
+
+    const filtered = orderHistory.filter(o => {
+      const d = o.timestamp?.toDate ? o.timestamp.toDate() : new Date(o.timestamp);
+      return type === 'day' 
+        ? d.toDateString() === now.toDateString() 
+        : d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    });
+
+    const body = filtered.map((o, i) => [
+      i + 1,
+      `#${o.tokenNo}`,
+      o.paymentMethod || 'CASH',
+      `Rs. ${o.total}`
+    ]);
+
+    autoTable(doc, {
+      startY: 35,
+      head: [['Sr.', 'Token', 'Method', 'Amount']],
+      body: body,
+      theme: 'striped',
+      headStyles: { fillColor: [255, 193, 7], textColor: 0 },
+      foot: [['', '', 'TOTAL REVENUE', `Rs. ${filtered.reduce((a, b) => a + (b.total || 0), 0)}`]],
+      footStyles: { fillColor: [0, 0, 0] }
+    });
+
+    const pdfDataUri = doc.output('datauristring');
+    const rawBase64 = pdfDataUri.split(',')[1]; 
+    const fileName = `Ambika_${type}_${Date.now()}.pdf`;
+
+    // 2. SAVE DIRECTLY TO DOCUMENTS (Internal Device Storage)
+    // This bypasses the WhatsApp/Share menu entirely
+    await Filesystem.writeFile({
+      path: fileName,
+      data: rawBase64,
+      directory: Directory.Documents,
+      recursive: true
+    });
+
+    alert(`REPORT GENERATED: ${fileName} has been saved to your Documents.`);
+
+  } catch (error) {
+    console.error("PDF ERROR:", error);
+    alert("System Error: " + error.message);
+  }
+};
   // --- POS BUSINESS ACTIONS ---
   const addToCart = (item) => {
     if (availability[item.id] === false) return;
@@ -155,9 +147,13 @@ const POSDashboard = () => {
   const waitInfo = useMemo(() => calculateWaitTime(activeQueueCount), [activeQueueCount]);
 
   const handleCheckout = async () => {
-    if (cart.length === 0 || isProcessing) return;
+    if (cart.length === 0) return;
+    
+    // Start processing
     setIsProcessing(true);
+
     try {
+      // 1. FAST TOKEN TRANSACTION
       const tokenNo = await runTransaction(db, async (t) => {
         const cRef = doc(db, "app_status", "token_counter");
         const cDoc = await t.get(cRef);
@@ -165,11 +161,36 @@ const POSDashboard = () => {
         t.set(cRef, { lastToken: next });
         return next;
       });
-      const orderData = { tokenNo, items: cart, total: totalPrice, paymentMethod, status: 'preparing', timestamp: new Date() };
-      await addDoc(collection(db, "orders"), { ...orderData, timestamp: serverTimestamp() });
-      setLastOrder(orderData); setCart([]); setShowCartMobile(false); setShowPhoneModal(true);
-    } catch (e) { console.error(e); } finally { setIsProcessing(false); }
+
+      const orderData = { 
+        tokenNo, 
+        items: cart, 
+        total: totalPrice, 
+        paymentMethod, 
+        status: 'preparing', 
+        timestamp: new Date() 
+      };
+
+      // 2. FIRE-AND-FORGET SAVE (No 'await' here makes the UI switch instantly)
+      addDoc(collection(db, "orders"), { ...orderData, timestamp: serverTimestamp() });
+
+      // 3. INSTANT UI RESET
+      setLastOrder(orderData); 
+      setCart([]); 
+      setShowCartMobile(false); 
+      
+      // 4. JUMP TO RECEIPT (Skips the phone modal for speed)
+      setShowReceipt(true); 
+
+    } catch (e) { 
+      console.error("Checkout Error:", e);
+      alert("System Busy. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
+
+      
 
   const handleProfessionalShare = async () => {
     if (!receiptRef.current) return;
